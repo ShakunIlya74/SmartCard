@@ -1,3 +1,5 @@
+import json
+
 from reverso_api.context import ReversoContextAPI
 
 from research.reversoAPI import get_translations, get_reverso_examples
@@ -32,8 +34,8 @@ def create_card(user_id, phrase, set_name, translations=None, context_examples=N
     # create a new card
     if translations is None and context_examples is None:
         translations, context_examples = prepare_card_for_user(user_id, phrase, n)
-        translations = str(translations)
-        context_examples = str(context_examples)
+        translations = json.dumps(translations)
+        context_examples = json.dumps(context_examples)
     card_id = sql_execute("""
     INSERT INTO cards (user_id, phrase, translations, context_examples)
     VALUES (:user_id, :phrase, :translations, :context_examples) RETURNING card_id
@@ -69,7 +71,7 @@ def create_user(user_id, user_name, l1='ru', l2='de'):
 # ------------------ User Interface: helper functions  ------------------
 
 
-def get_card_translation_and_examples_representation(card_id, n=3):
+def get_card_translation_and_examples_representation_preview(card_id, n=3, return_pure_dicts=False):
     # get translations and context examples for the card
     card = sql_execute("""
     SELECT phrase, translations, context_examples
@@ -77,11 +79,16 @@ def get_card_translation_and_examples_representation(card_id, n=3):
     WHERE card_id = :card_id
     """, card_id=card_id)
     phrse, translations, context_examples = card[0]
-    translations = str([f'{i}. '+translation['translation']+'\n' for i,translation in enumerate(translations[:n])])
-    context_examples = str([f'{i}. '+example['source']+'\n' for i,example in enumerate(context_examples[:n])])
-    context_translations = str([f'{i}. '+example['target']+'\n' for i,example in enumerate(context_examples[:n])])
-    return {"phrase": phrse, "translations": translations, "context_examples":
-        context_examples, "context_translations": context_translations}
+    translations = json.loads(translations)
+    context_examples = json.loads(context_examples)
+    if return_pure_dicts:
+        return {"phrase": phrse, "translations_dicts": translations, "contexts_dicts": context_examples}
+    else:
+        translations_str = str([f'{i}. '+translation['translation']+'\n' for i,translation in enumerate(translations[:n])])
+        context_examples_str = str([f'{i}. '+example['source']+'\n' for i,example in enumerate(context_examples[:n])])
+        context_translations_str = str([f'{i}. '+example['target']+'\n' for i,example in enumerate(context_examples[:n])])
+        return {"phrase": phrse, "translations": translations_str, "context_examples":
+            context_examples_str, "context_translations": context_translations_str}
 
 
 def get_set_cards(user_id, set_name):
@@ -92,7 +99,7 @@ def get_set_cards(user_id, set_name):
     WHERE set_id = (SELECT set_id FROM sets WHERE set_name = :set_name AND user_id = :user_id)
     """, set_name=set_name, user_id=user_id)
     card_ids = [card[0] for card in card_ids]
-    cards = [get_card_translation_and_examples_representation(card_id) for card_id in card_ids]
+    cards = [get_card_translation_and_examples_representation_preview(card_id) for card_id in card_ids]
     return cards
 
 

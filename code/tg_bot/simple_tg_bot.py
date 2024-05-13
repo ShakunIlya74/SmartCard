@@ -16,7 +16,8 @@ from aiogram.filters import CommandStart, Command
 
 from aiogram.utils.markdown import hbold
 
-from user_utils.user_utils import select_existing_sets, insert_set, get_user_info, create_user, create_card
+from user_utils.user_utils import select_existing_sets, insert_set, get_user_info, create_user, create_card, \
+    get_set_cards
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 dp = Dispatcher()
@@ -25,9 +26,13 @@ user_router = Router()
 # TODO: add settings to change languages
 class Form(StatesGroup):
     input_set = State()
-    input_word = State()
     main_menu = State()
+    # set actions
     set_actions_menu = State()
+    input_word = State()
+    set_display = State()
+    learning_mode = State()
+
 
 WELCOME_TEXT = "Welcome to the Word Set Bot! Use the buttons below to create a new set, add words to your sets, display your sets or learn words from your sets."
 
@@ -60,6 +65,11 @@ def back_to_menu_buttons(): # -> InlineKeyboardMarkup:
     main_buttons_menu = InlineKeyboardBuilder([[back]])
     return main_buttons_menu
 
+def back_to_set_menu_buttons(): # -> InlineKeyboardMarkup:
+    back_to_set_actions = InlineKeyboardButton(text="⬅️", callback_data="back_to_set_menu")
+    main_buttons_menu = InlineKeyboardBuilder([[back_to_set_actions]])
+    return main_buttons_menu
+
 
 def set_buttons(user_id): # -> InlineKeyboardMarkup:
     b_back = InlineKeyboardButton(text="⬅️", callback_data="back")
@@ -84,9 +94,11 @@ def set_menu_buttons():
 @dp.callback_query()
 async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
     """Process the button click"""
+    user_id = call.from_user.id
+    data = await state.get_data()
+    set_name = data.get("current_set")
     if call.data == "select_set":
         # await call.message.answer("Select set")
-        user_id = call.from_user.id
         print(f"Select sets for user: {user_id}")
         await call.message.edit_text("Your sets:", reply_markup=set_buttons(user_id).as_markup())
     elif call.data == "create_set":
@@ -98,12 +110,19 @@ async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
         await call.message.edit_text(WELCOME_TEXT, reply_markup=main_menu_msg_buttons().as_markup())
     elif call.data.startswith("set_menu"):
         print("Set menu")
-        data = await state.update_data(current_set=call.data[9:])
+        await state.update_data(current_set=call.data[9:])
         await state.set_state(Form.set_actions_menu)
-        await call.message.edit_text(f"Set {call.data[9:]}.", reply_markup=set_menu_buttons().as_markup())
+        await call.message.edit_text(f"Your selection: {call.data[9:]} what do you want to do now?", reply_markup=set_menu_buttons().as_markup())
     elif call.data == "add_word":
         await state.set_state(Form.input_word)
-        await call.message.edit_text("Enter the word you want to add to the set:", reply_markup=back_to_menu_buttons().as_markup())
+        await call.message.edit_text("Enter the word you want to add to the set:", reply_markup=back_to_set_menu_buttons().as_markup())
+    elif call.data == "display_set":
+        await call.message.edit_text(f"Displaying set: {set_name}\n {get_set_display_string(user_id, set_name)}",
+                                     reply_markup=back_to_set_menu_buttons().as_markup())
+    elif call.data == "back_to_set_menu":
+        await state.set_state(Form.set_actions_menu)
+        await call.message.edit_text(f"Your selection: {set_name} what do you want to do now?", reply_markup=set_menu_buttons().as_markup())
+
 
 
 @user_router.message(Form.input_set)
@@ -113,7 +132,7 @@ async def process_new_set(message: types.Message, state: FSMContext):
     print(f"Set name: {set_name}")
     await state.update_data(current_set=message.text)
     await state.set_state(Form.main_menu)
-    await message.reply(f"{set_name} added to your sets.", reply_markup= main_menu_msg_buttons().as_markup())
+    await message.answer(f"{set_name} added to your sets.", reply_markup= main_menu_msg_buttons().as_markup())
 
 
 @user_router.message(Form.input_word)
@@ -123,8 +142,29 @@ async def process_new_word(message: types.Message, state: FSMContext):
     set_name = data.get("current_set")
     print(f"Adding {new_word}: {set_name}")
     create_card(user_id=message.from_user.id, phrase=new_word, set_name=set_name)
-    await state.set_state(Form.input_word)
-    await message.reply(f"{new_word} added to {set_name}.", reply_markup=set_menu_buttons().as_markup())
+    await message.answer(f"{new_word} added to {set_name}.", reply_markup=set_menu_buttons().as_markup())
+
+
+def get_set_display_string(user_id, set_name, mode="word_list"):
+    set_cards = get_set_cards(user_id=user_id, set_name=set_name)
+    display_string = "\n"
+    if mode == "word_list":
+        for i, card in enumerate(set_cards):
+            display_string += f"{i+1}. {card['phrase']}\n"
+    return display_string
+
+
+
+
+# @user_router.message(Form.input_word)
+# async def display_set(message: types.Message, state: FSMContext):
+#     # new_word = message.text
+#     data = await state.get_data()
+#     set_name = data.get("current_set")
+#     print(f"Adding {new_word}: {set_name}")
+#     create_card(user_id=message.from_user.id, phrase=new_word, set_name=set_name)
+#     await state.set_state(Form.input_word)
+#     await message.answer(f"{new_word} added to {set_name}.", reply_markup=set_menu_buttons().as_markup())
 
 
 
