@@ -17,7 +17,7 @@ from aiogram.filters import CommandStart, Command
 
 from user_utils.user_utils import select_existing_sets, insert_set, get_user_info, create_user, create_card, \
     get_set_cards, get_random_card, get_card_translation_and_examples_representation_preview, \
-    format_translations_and_contexts
+    format_translations_and_contexts, get_display_card_dict_string, remove_translation, remove_context_example
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 dp = Dispatcher()
@@ -27,9 +27,11 @@ user_router = Router()
 class Form(StatesGroup):
     input_set = State()
     main_menu = State()
+    # word actions
+    input_word = State()
+    edit_card = State()
     # set actions
     set_actions_menu = State()
-    input_word = State()
     set_display = State()
     learning_mode = State()
     random_original_mode = State()
@@ -122,6 +124,28 @@ def set_menu_buttons():
     return main_buttons_menu
 
 
+def set_menu_buttons_with_card_edit():
+    b_back = InlineKeyboardButton(text="⬅️", callback_data="back")
+    b_edit_card = InlineKeyboardButton(text="Edit added card", callback_data="edit_card")
+    b_add_word = InlineKeyboardButton(text="Add word", callback_data="add_word")
+    b_display_set = InlineKeyboardButton(text="Display set", callback_data="display_set")
+    b_learn_set = InlineKeyboardButton(text="Learn set", callback_data="learn_set")
+
+    main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_edit_card], [b_add_word], [b_display_set], [b_learn_set]])
+    return main_buttons_menu
+
+def edit_card_buttons():
+    b_back = InlineKeyboardButton(text="⬅️", callback_data="back_to_set_menu")
+    b_rm_1_translation = InlineKeyboardButton(text="Remove 1st translation", callback_data="rm_translation 1")
+    b_rm_1_context = InlineKeyboardButton(text="Remove 1st context", callback_data="rm_context 1")
+    b_rm_2_translation = InlineKeyboardButton(text="Remove 2nd translation", callback_data="rm_translation 2")
+    b_rm_2_context = InlineKeyboardButton(text="Remove 2nd context", callback_data="rm_context 2")
+    b_rm_3_translation = InlineKeyboardButton(text="Remove 3rd translation", callback_data="rm_translation 3")
+    b_rm_3_context = InlineKeyboardButton(text="Remove 3rd context", callback_data="rm_context 3")
+    main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_rm_1_translation], [b_rm_1_context], [b_rm_2_translation], [b_rm_2_context], [b_rm_3_translation], [b_rm_3_context]])
+    main_buttons_menu.adjust(1,2,2,2)
+    return main_buttons_menu
+
 @user_router.message(Form.main_menu)
 @dp.callback_query()
 async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
@@ -148,6 +172,9 @@ async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
     elif call.data == "add_word":
         await state.set_state(Form.input_word)
         await call.message.edit_text("Enter the word you want to add to the set:", reply_markup=back_to_set_menu_buttons().as_markup())
+    elif call.data == "edit_card":
+        await state.set_state(Form.edit_card)
+        await process_edit_card(call.message, state)
     elif call.data == "display_set":
         await call.message.edit_text(f"Displaying set: {set_name}\n {get_set_display_string(user_id, set_name)}",
                                      reply_markup=back_to_set_menu_buttons().as_markup())
@@ -184,6 +211,18 @@ async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
         await state.set_state(Form.random_translation_mode)
         await random_translation(call.message, state, user_id)
 
+    # calls for card editing
+    if call.data.startswith("rm_translation"):
+        print("Removing translation")
+        await process_edit_card(call.message, state, rm_translation_index=int(call.data.split()[-1]))
+    elif call.data.startswith("rm_context"):
+        print("Removing context")
+        await process_edit_card(call.message, state, rm_context_index=int(call.data.split()[-1]))
+    # elif call.data == "back_to_set_menu":
+        # await state.set_state(Form.set_actions_menu)
+        # await call.message.edit_text(f"Your selection: {set_name} what do you want to do now?", reply_markup=set_menu_buttons().as_markup())
+
+
 
 @user_router.message(Form.input_set)
 async def process_new_set(message: types.Message, state: FSMContext):
@@ -201,9 +240,28 @@ async def process_new_word(message: types.Message, state: FSMContext):
     data = await state.get_data()
     set_name = data.get("current_set")
     print(f"Adding {new_word}: {set_name}")
-    create_card(user_id=message.from_user.id, phrase=new_word, set_name=set_name)
-    # todo: edit translations or examples
-    await message.answer(f"{new_word} added to {set_name}.", reply_markup=set_menu_buttons().as_markup())
+    card_id = create_card(user_id=message.from_user.id, phrase=new_word, set_name=set_name)
+    card = get_card_translation_and_examples_representation_preview(card_id, return_pure_dicts=True)
+    display_string = get_display_card_dict_string(card)
+    await state.update_data(current_card_id=card_id)
+    await message.answer(f"{new_word} added to {set_name}. Card preview:\n\n {display_string}",
+                         reply_markup=set_menu_buttons_with_card_edit().as_markup())
+
+
+@user_router.message(Form.edit_card)
+async def process_edit_card(message: types.Message, state: FSMContext, rm_translation_index=None, rm_context_index=None):
+    data = await state.get_data()
+    card_id = data.get("current_card_id")
+    if rm_translation_index:
+        print(f"Removing translation {rm_translation_index}")
+        remove_translation(card_id, rm_translation_index)
+    if rm_context_index:
+        print(f"Removing context {rm_context_index}")
+        remove_context_example(card_id, rm_context_index)
+    card = get_card_translation_and_examples_representation_preview(card_id, return_pure_dicts=True)
+    display_string = get_display_card_dict_string(card)
+    await message.edit_text(f"🛠 Editing {display_string}", reply_markup=edit_card_buttons().as_markup())
+
 
 
 def get_set_display_string(user_id, set_name, mode="word_list"):
@@ -231,8 +289,7 @@ async def random_original(message: types.Message, state: FSMContext, user_id: in
     elif data.get("random_original_action") == "show_translation":
         print("translation")
         card = get_card_translation_and_examples_representation_preview(data.get("current_card_id"), return_pure_dicts=True)
-        display_string = f"{html.bold(card['phrase'])}\n\n"
-        display_string += format_translations_and_contexts(card['translations_dicts'], card['contexts_dicts'])
+        display_string = get_display_card_dict_string(card)
         await message.edit_text(display_string, reply_markup=random_original_mode_buttons().as_markup())
 
 
@@ -248,25 +305,17 @@ async def random_translation(message: types.Message, state: FSMContext, user_id:
         card = get_random_card(user_id, set_name)
         spoiler_word = f"{html.spoiler(card['phrase'])}"
         await state.update_data(current_card_id=card['card_id'])
+        # todo: show random translation from the top3 translations
         await message.answer(f"{html.bold(card['translations_dicts'][0]['translation'])}\n\n{spoiler_word}",
                              reply_markup=random_translation_mode_buttons().as_markup())
     elif data.get("random_translation_action") == "show_word_card":
         print("show word card")
         card = get_card_translation_and_examples_representation_preview(data.get("current_card_id"), return_pure_dicts=True)
-        display_string = f"{html.bold(card['phrase'])}\n\n"
-        display_string += format_translations_and_contexts(card['translations_dicts'], card['contexts_dicts'])
+        display_string = get_display_card_dict_string(card)
         await message.edit_text(display_string, reply_markup=random_translation_mode_buttons().as_markup())
 
 
-# @user_router.message(Form.input_word)
-# async def display_set(message: types.Message, state: FSMContext):
-#     # new_word = message.text
-#     data = await state.get_data()
-#     set_name = data.get("current_set")
-#     print(f"Adding {new_word}: {set_name}")
-#     create_card(user_id=message.from_user.id, phrase=new_word, set_name=set_name)
-#     await state.set_state(Form.input_word)
-#     await message.answer(f"{new_word} added to {set_name}.", reply_markup=set_menu_buttons().as_markup())
+
 
 
 
