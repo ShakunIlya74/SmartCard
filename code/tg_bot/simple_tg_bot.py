@@ -33,7 +33,7 @@ class Form(StatesGroup):
     set_display = State()
     learning_mode = State()
     random_original_mode = State()
-    random_inverse_mode = State()
+    random_translation_mode = State()
 
 
 WELCOME_TEXT = "Welcome to the Word Set Bot! Use the buttons below to create a new set, add words to your sets, display your sets or learn words from your sets."
@@ -86,6 +86,16 @@ def random_original_mode_buttons(add_translation=True): # -> InlineKeyboardMarku
     b_back = InlineKeyboardButton(text="⬅️", callback_data="back_to_set_menu")
     b_show_translation = InlineKeyboardButton(text="Show translation", callback_data="show_translation")
     b_next = InlineKeyboardButton(text="Next", callback_data="next_random_original")
+    if not add_translation:
+        main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_next]])
+    else:
+        main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_show_translation],[b_next]])
+    return main_buttons_menu
+
+def random_translation_mode_buttons(add_translation=True): # -> InlineKeyboardMarkup:
+    b_back = InlineKeyboardButton(text="⬅️", callback_data="back_to_set_menu")
+    b_show_translation = InlineKeyboardButton(text="Show word", callback_data="show_word_card")
+    b_next = InlineKeyboardButton(text="Next", callback_data="next_random_translation")
     if not add_translation:
         main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_next]])
     else:
@@ -161,6 +171,18 @@ async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
         await state.update_data(random_original_action="show_translation")
         await state.set_state(Form.random_original_mode)
         await random_original(call.message, state, user_id)
+    elif call.data == "random_translation":
+        await call.message.edit_text(f"Random translation: you will see a translation. Try to remember the original word and came up with a proper usage in context",
+                                     reply_markup=random_translation_mode_buttons(False).as_markup())
+    elif call.data == "next_random_translation":
+        print("Next random translation")
+        await state.update_data(random_translation_action="next")
+        await state.set_state(Form.random_translation_mode)
+        await random_translation(call.message, state, user_id)
+    elif call.data == "show_word_card":
+        await state.update_data(random_translation_action="show_word_card")
+        await state.set_state(Form.random_translation_mode)
+        await random_translation(call.message, state, user_id)
 
 
 @user_router.message(Form.input_set)
@@ -180,6 +202,7 @@ async def process_new_word(message: types.Message, state: FSMContext):
     set_name = data.get("current_set")
     print(f"Adding {new_word}: {set_name}")
     create_card(user_id=message.from_user.id, phrase=new_word, set_name=set_name)
+    # todo: edit translations or examples
     await message.answer(f"{new_word} added to {set_name}.", reply_markup=set_menu_buttons().as_markup())
 
 
@@ -211,7 +234,28 @@ async def random_original(message: types.Message, state: FSMContext, user_id: in
         display_string = f"{html.bold(card['phrase'])}\n\n"
         display_string += format_translations_and_contexts(card['translations_dicts'], card['contexts_dicts'])
         await message.edit_text(display_string, reply_markup=random_original_mode_buttons().as_markup())
-    # await message.answer(f"", reply_markup=main_menu_msg_buttons().as_markup())
+
+
+@user_router.message(Form.random_translation_mode)
+async def random_translation(message: types.Message, state: FSMContext, user_id: int):
+    print("Random translation mode")
+    data = await state.get_data()
+    set_name = data.get("current_set")
+    if data.get("random_translation_action") == "next":
+        print('Next')
+        # get random card from the set
+        print(f"Getting random card from {set_name}")
+        card = get_random_card(user_id, set_name)
+        spoiler_word = f"{html.spoiler(card['phrase'])}"
+        await state.update_data(current_card_id=card['card_id'])
+        await message.answer(f"{html.bold(card['translations_dicts'][0]['translation'])}\n\n{spoiler_word}",
+                             reply_markup=random_translation_mode_buttons().as_markup())
+    elif data.get("random_translation_action") == "show_word_card":
+        print("show word card")
+        card = get_card_translation_and_examples_representation_preview(data.get("current_card_id"), return_pure_dicts=True)
+        display_string = f"{html.bold(card['phrase'])}\n\n"
+        display_string += format_translations_and_contexts(card['translations_dicts'], card['contexts_dicts'])
+        await message.edit_text(display_string, reply_markup=random_translation_mode_buttons().as_markup())
 
 
 # @user_router.message(Form.input_word)
