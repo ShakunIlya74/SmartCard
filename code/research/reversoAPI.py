@@ -1,7 +1,47 @@
 from reverso_api.context import ReversoContextAPI
 
 # api = ReversoContextAPI(source_text="пример", target_text="", source_lang="ru", target_lang="en")
+SUPPORTED_LANGUAGES =  {
+    "🇸🇦": "ar",  # Saudi Arabia (Arabic)
+    "🇩🇪": "de",  # Germany (German)
+    "🇪🇸": "es",  # Spain (Spanish)
+    "🇫🇷": "fr",  # France (French)
+    "🇮🇱": "he",  # Israel (Hebrew)
+    "🇮🇹": "it",  # Italy (Italian)
+    "🇯🇵": "ja",  # Japan (Japanese)
+    "🇰🇷": "ko",  # South Korea (Korean)
+    "🇳🇱": "nl",  # Netherlands (Dutch)
+    "🇵🇱": "pl",  # Poland (Polish)
+    "🇵🇹": "pt",  # Portugal (Portuguese)
+    "🇷🇴": "ro",  # Romania (Romanian)
+    "🇷🇺": "ru",  # Russia (Russian)
+    "🇸🇪": "sv",  # Sweden (Swedish)
+    "🇹🇷": "tr",  # Turkey (Turkish)
+    "🇺🇦": "uk",  # Ukraine (Ukrainian)
+    "🇨🇳": "zh",  # China (Chinese)
+    "🇬🇧": "en"   # United Kingdom (English)
+}
 
+SUPPORTED_LANGUAGES_INVERS = {
+    "ar": "🇸🇦",  # Arabic (Saudi Arabia)
+    "de": "🇩🇪",  # German (Germany)
+    "es": "🇪🇸",  # Spanish (Spain)
+    "fr": "🇫🇷",  # French (France)
+    "he": "🇮🇱",  # Hebrew (Israel)
+    "it": "🇮🇹",  # Italian (Italy)
+    "ja": "🇯🇵",  # Japanese (Japan)
+    "ko": "🇰🇷",  # Korean (South Korea)
+    "nl": "🇳🇱",  # Dutch (Netherlands)
+    "pl": "🇵🇱",  # Polish (Poland)
+    "pt": "🇵🇹",  # Portuguese (Portugal)
+    "ro": "🇷🇴",  # Romanian (Romania)
+    "ru": "🇷🇺",  # Russian (Russia)
+    "sv": "🇸🇪",  # Swedish (Sweden)
+    "tr": "🇹🇷",  # Turkish (Turkey)
+    "uk": "🇺🇦",  # Ukrainian (Ukraine)
+    "zh": "🇨🇳",  # Chinese (China)
+    "en": "🇬🇧"   # English (United Kingdom)
+}
 
 def get_translations(phrase, l2='de', l1='ru', n=5, API_instance=None, target_text=""):
     if not API_instance:

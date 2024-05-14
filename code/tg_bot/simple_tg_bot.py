@@ -15,16 +15,19 @@ import asyncio
 from aiogram import Bot, Dispatcher, types, Router, html
 from aiogram.filters import CommandStart, Command
 
+from research.reversoAPI import SUPPORTED_LANGUAGES
 from user_utils.user_utils import select_existing_sets, insert_set, get_user_info, create_user, create_card, \
     get_set_cards, get_random_card, get_card_translation_and_examples_representation_preview, \
-    format_translations_and_contexts, get_display_card_dict_string, remove_translation, remove_context_example
+    format_translations_and_contexts, get_display_card_dict_string, remove_translation, remove_context_example, \
+    change_user_l1, change_user_l2
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 dp = Dispatcher()
 user_router = Router()
 
-# TODO: add settings to change languages
+
 class Form(StatesGroup):
+    user_settings = State()
     input_set = State()
     main_menu = State()
     # word actions
@@ -59,10 +62,11 @@ async def on_start(msg: types.Message, state: FSMContext) -> None:
 
 
 def main_menu_msg_buttons(): # -> InlineKeyboardMarkup:
+    b_settings = InlineKeyboardButton(text="Settings ⚙️", callback_data="user_settings")
     b_select_set = InlineKeyboardButton(text="Select set", callback_data="select_set")
     b_create_set = InlineKeyboardButton(text="Create set", callback_data="create_set")
-    main_buttons_menu = InlineKeyboardBuilder([[b_select_set], [b_create_set]])
-    main_buttons_menu.adjust(2)
+    main_buttons_menu = InlineKeyboardBuilder([[b_settings], [b_select_set], [b_create_set]])
+    main_buttons_menu.adjust(1,2)
     return main_buttons_menu
 
 
@@ -146,6 +150,28 @@ def edit_card_buttons():
     main_buttons_menu.adjust(1,2,2,2)
     return main_buttons_menu
 
+def user_settings_buttons():
+    b_back = InlineKeyboardButton(text="⬅️", callback_data="back")
+    b_change_l2 = InlineKeyboardButton(text="Change learning language", callback_data="change_l2")
+    b_change_l1 = InlineKeyboardButton(text="Change translation language", callback_data="change_l1")
+    main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_change_l2], [b_change_l1]])
+    main_buttons_menu.adjust(1,2)
+    return main_buttons_menu
+
+
+def language_select_buttons(change_l1_to=False, change_l2_to=False):
+    if change_l1_to and change_l2_to or (not change_l1_to and not change_l2_to):
+        raise ValueError("Exactly one language can be changed at a time")
+    b_back = InlineKeyboardButton(text="⬅️", callback_data="back")
+    if change_l1_to:
+        buttons = [[InlineKeyboardButton(text=flag, callback_data='change_l1_to:' + lang)] for flag, lang in SUPPORTED_LANGUAGES.items()]
+    if change_l2_to:
+        buttons = [[InlineKeyboardButton(text=flag, callback_data='change_l2_to:' + lang)] for flag, lang in SUPPORTED_LANGUAGES.items()]
+    list_of_all_buttons = [[b_back], *buttons]
+    main_buttons_menu = InlineKeyboardBuilder(list_of_all_buttons)
+    main_buttons_menu.adjust(1,6,6,6,6)
+    return main_buttons_menu
+
 @user_router.message(Form.main_menu)
 @dp.callback_query()
 async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
@@ -218,10 +244,35 @@ async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
     elif call.data.startswith("rm_context"):
         print("Removing context")
         await process_edit_card(call.message, state, rm_context_index=int(call.data.split()[-1]))
-    # elif call.data == "back_to_set_menu":
-        # await state.set_state(Form.set_actions_menu)
-        # await call.message.edit_text(f"Your selection: {set_name} what do you want to do now?", reply_markup=set_menu_buttons().as_markup())
 
+    # user_settings
+    if call.data == "user_settings":
+        await state.set_state(Form.user_settings)
+        await process_user_settings(call.message, state, user_id)
+    elif call.data == "change_l1":
+        await call.message.edit_text("Select the language you want to use for translations", reply_markup=language_select_buttons(change_l1_to=True).as_markup())
+    elif call.data == "change_l2":
+        await call.message.edit_text("Select the language you want to learn", reply_markup=language_select_buttons(change_l2_to=True).as_markup())
+    elif call.data.startswith("change_l1_to"):
+        await process_user_settings(call.message, state, user_id, change_l1_to=call.data.split(":")[-1])
+    elif call.data.startswith("change_l2_to"):
+        await process_user_settings(call.message, state, user_id, change_l2_to=call.data.split(":")[-1])
+
+
+
+@user_router.message(Form.user_settings)
+async def process_user_settings(message: types.Message, state: FSMContext, user_id: int, change_l1_to=None, change_l2_to=None):
+    user_name, l1, l2 = get_user_info(user_id)
+    if change_l1_to:
+        print(f"Changing l1 to {change_l1_to}")
+        change_user_l1(user_id, change_l1_to)
+        l1 = change_l1_to
+    if change_l2_to:
+        print(f"Changing l2 to {change_l2_to}")
+        change_user_l2(user_id, change_l2_to)
+        l2 = change_l2_to
+    await message.edit_text(f"Settings ⚙️:\n\n Name: {user_name}\n Your learning language: {l2}\n Language for translations: {l1}",
+                            reply_markup=user_settings_buttons().as_markup())
 
 
 @user_router.message(Form.input_set)

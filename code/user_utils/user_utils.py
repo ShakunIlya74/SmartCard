@@ -59,12 +59,30 @@ def get_user_info(user_id):
     return user[0][0], user[0][1], user[0][2]
 
 
-def create_user(user_id, user_name, l1='ru', l2='de'):
+def create_user(user_id, user_name, l1='en', l2='de'):
     # create a new user
     sql_execute("""
     INSERT INTO users (user_id, user_name, l1, l2)
     VALUES (:user_id, :user_name, :l1, :l2)
     """, user_id=user_id, user_name=user_name, l1=l1, l2=l2)
+
+
+def change_user_l1(user_id, l1):
+    # change the first language of the user
+    sql_execute("""
+    UPDATE users
+    SET l1 = :l1
+    WHERE user_id = :user_id
+    """, l1=l1, user_id=user_id)
+
+
+def change_user_l2(user_id, l2):
+    # change the second language of the user
+    sql_execute("""
+    UPDATE users
+    SET l2 = :l2
+    WHERE user_id = :user_id
+    """, l2=l2, user_id=user_id)
 
 
 def prepare_card_for_user(user_id, phrase, n=10):
