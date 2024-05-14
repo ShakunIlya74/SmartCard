@@ -1,6 +1,7 @@
 import logging
 
-from aiogram.dispatcher import router
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import InlineKeyboardButton
@@ -14,10 +15,9 @@ import asyncio
 from aiogram import Bot, Dispatcher, types, Router, html
 from aiogram.filters import CommandStart, Command
 
-from aiogram.utils.markdown import hbold
-
 from user_utils.user_utils import select_existing_sets, insert_set, get_user_info, create_user, create_card, \
-    get_set_cards
+    get_set_cards, get_random_card, get_card_translation_and_examples_representation_preview, \
+    format_translations_and_contexts
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 dp = Dispatcher()
@@ -32,6 +32,8 @@ class Form(StatesGroup):
     input_word = State()
     set_display = State()
     learning_mode = State()
+    random_original_mode = State()
+    random_inverse_mode = State()
 
 
 WELCOME_TEXT = "Welcome to the Word Set Bot! Use the buttons below to create a new set, add words to your sets, display your sets or learn words from your sets."
@@ -40,13 +42,15 @@ WELCOME_TEXT = "Welcome to the Word Set Bot! Use the buttons below to create a n
 @dp.message(Command('start'))
 async def on_start(msg: types.Message, state: FSMContext) -> None:
     """Process the command `start`"""
-    reply_text = f"Hello, {msg.from_user.first_name}. \n"  + WELCOME_TEXT #html.bold(msg.from_user.first_name)
+    reply_text = f"Hello, {html.bold(msg.from_user.first_name)}. \n"  + WELCOME_TEXT
     main_buttons = main_menu_msg_buttons()
     # setup user
     user_info = get_user_info(msg.from_user.id)
+    print(msg.from_user.id, user_info)
     if not user_info:
         create_user(msg.from_user.id, msg.from_user.first_name)
     await state.set_state(Form.main_menu)
+    await state.update_data(user_id=msg.from_user.id)
     await msg.answer(
         text=reply_text, reply_markup=main_buttons.as_markup()
     )
@@ -68,6 +72,24 @@ def back_to_menu_buttons(): # -> InlineKeyboardMarkup:
 def back_to_set_menu_buttons(): # -> InlineKeyboardMarkup:
     back_to_set_actions = InlineKeyboardButton(text="⬅️", callback_data="back_to_set_menu")
     main_buttons_menu = InlineKeyboardBuilder([[back_to_set_actions]])
+    return main_buttons_menu
+
+def learning_modes_buttons(): # -> InlineKeyboardMarkup:
+    b_back = InlineKeyboardButton(text="⬅️", callback_data="back_to_set_menu")
+    random_original = InlineKeyboardButton(text="Random original", callback_data="random_original")
+    random_translation = InlineKeyboardButton(text="Random translation", callback_data="random_translation")
+    # todo: add more learning modes
+    main_buttons_menu = InlineKeyboardBuilder([[b_back], [random_original], [random_translation]])
+    return main_buttons_menu
+
+def random_original_mode_buttons(add_translation=True): # -> InlineKeyboardMarkup:
+    b_back = InlineKeyboardButton(text="⬅️", callback_data="back_to_set_menu")
+    b_show_translation = InlineKeyboardButton(text="Show translation", callback_data="show_translation")
+    b_next = InlineKeyboardButton(text="Next", callback_data="next_random_original")
+    if not add_translation:
+        main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_next]])
+    else:
+        main_buttons_menu = InlineKeyboardBuilder([[b_back], [b_show_translation],[b_next]])
     return main_buttons_menu
 
 
@@ -122,7 +144,23 @@ async def on_button_click(call: types.CallbackQuery, state: FSMContext) -> None:
     elif call.data == "back_to_set_menu":
         await state.set_state(Form.set_actions_menu)
         await call.message.edit_text(f"Your selection: {set_name} what do you want to do now?", reply_markup=set_menu_buttons().as_markup())
+    elif call.data == "learn_set":
+        await state.set_state(Form.learning_mode)
+        await call.message.edit_text(f"Select a learning mode: {set_name}", reply_markup=learning_modes_buttons().as_markup())
 
+    # call for learning modes
+    if call.data == "random_original":
+        await call.message.edit_text(f"Random original: words will be displayed as you added them. Try to remember the translation and came up with a proper usage in context",
+                                     reply_markup=random_original_mode_buttons(False).as_markup())
+    elif call.data == "next_random_original":
+        print("Next random original")
+        await state.update_data(random_original_action="next")
+        await state.set_state(Form.random_original_mode)
+        await random_original(call.message, state, user_id)
+    elif call.data == "show_translation":
+        await state.update_data(random_original_action="show_translation")
+        await state.set_state(Form.random_original_mode)
+        await random_original(call.message, state, user_id)
 
 
 @user_router.message(Form.input_set)
@@ -154,6 +192,26 @@ def get_set_display_string(user_id, set_name, mode="word_list"):
     return display_string
 
 
+@user_router.message(Form.random_original_mode)
+async def random_original(message: types.Message, state: FSMContext, user_id: int):
+    print("Random original mode")
+    data = await state.get_data()
+    set_name = data.get("current_set")
+    if data.get("random_original_action") == "next":
+        print('Next')
+        # get random card from the set
+        print(f"Getting random card from {set_name}")
+        card = get_random_card(user_id, set_name)
+        spoiler_translation = f"{html.spoiler(card['translations_dicts'][0]['translation'])}"
+        await state.update_data(current_card_id=card['card_id'])
+        await message.answer(f"{html.bold(card['phrase'])}\n\n{spoiler_translation}", reply_markup=random_original_mode_buttons().as_markup())
+    elif data.get("random_original_action") == "show_translation":
+        print("translation")
+        card = get_card_translation_and_examples_representation_preview(data.get("current_card_id"), return_pure_dicts=True)
+        display_string = f"{html.bold(card['phrase'])}\n\n"
+        display_string += format_translations_and_contexts(card['translations_dicts'], card['contexts_dicts'])
+        await message.edit_text(display_string, reply_markup=random_original_mode_buttons().as_markup())
+    # await message.answer(f"", reply_markup=main_menu_msg_buttons().as_markup())
 
 
 # @user_router.message(Form.input_word)
@@ -174,6 +232,7 @@ async def main() -> None:
     logging.info("Starting the bot...")
     bot = Bot(
         token=TG_API_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp.include_router(user_router)
     await dp.start_polling(bot)
@@ -181,41 +240,3 @@ async def main() -> None:
 
 if __name__ == '__main__':
     asyncio.run(main())
-
-    # Importing required libraries
-    # from aiogram import Bot, Dispatcher, types
-    # from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    # from aiogram.dispatcher import executor
-    #
-    #
-    # # Put the token that you received from BotFather in the quotes
-    # bot = Bot(token=TG_API_TOKEN)
-    #
-    # # Initializing the dispatcher object
-    # dp = Dispatcher(bot)
-    #
-    # # Defining and adding buttons
-    # button1 = InlineKeyboardButton(text="button1", callback_data="In_First_button")
-    # button2 = InlineKeyboardButton(
-    #     text="button2", callback_data="In_Second_button")
-    # keyboard_inline = InlineKeyboardMarkup().add(button1, button2)
-
-    # Message handler for the /button1 command
-
-    # @dp.message_handler(commands=['start'])
-    # async def check(message: types.Message):
-    #     await message.reply("hi! how are you", reply_markup=keyboard_inline)
-    #
-    #
-    # # Callback query handler for the inline keyboard buttons
-    #
-    #
-    # @dp.callback_query_handler(text=["In_First_button", "In_Second_button"])
-    # async def check_button(call: types.CallbackQuery):
-    #     # Checking which button is pressed and respond accordingly
-    #     if call.data == "In_First_button":
-    #         await call.message.answer("Hi! This is the first inline keyboard button.")
-    #     if call.data == "In_Second_button":
-    #         await call.message.answer("Hi! This is the second inline keyboard button.")
-    #         # Notify the Telegram server that the callback query is answered successfully
-    #     await call.answer()

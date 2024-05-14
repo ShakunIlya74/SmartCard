@@ -1,9 +1,11 @@
 import json
 
+from aiogram.utils.text_decorations import html_decoration
 from reverso_api.context import ReversoContextAPI
 
 from research.reversoAPI import get_translations, get_reverso_examples
 from sql_utils.database_utils import sql_execute
+from aiogram import  html
 
 
 # ------------------ Backend: helper functions  ------------------
@@ -17,9 +19,6 @@ def select_existing_sets(user_id):
     """, user_id=user_id)
     sets = [set[0] for set in sets]
     return sets
-
-if __name__ == '__main__':
-    print(select_existing_sets(297723680))
 
 
 def insert_set(user_id, set_name):
@@ -82,13 +81,13 @@ def get_card_translation_and_examples_representation_preview(card_id, n=3, retur
     translations = json.loads(translations)
     context_examples = json.loads(context_examples)
     if return_pure_dicts:
-        return {"phrase": phrse, "translations_dicts": translations, "contexts_dicts": context_examples}
+        return {"phrase": phrse, "translations_dicts": translations, "contexts_dicts": context_examples, "card_id": card_id}
     else:
         translations_str = str([f'{i}. '+translation['translation']+'\n' for i,translation in enumerate(translations[:n])])
         context_examples_str = str([f'{i}. '+example['source']+'\n' for i,example in enumerate(context_examples[:n])])
         context_translations_str = str([f'{i}. '+example['target']+'\n' for i,example in enumerate(context_examples[:n])])
         return {"phrase": phrse, "translations": translations_str, "context_examples":
-            context_examples_str, "context_translations": context_translations_str}
+            context_examples_str, "context_translations": context_translations_str, "card_id": card_id}
 
 
 def get_set_cards(user_id, set_name):
@@ -111,5 +110,55 @@ def prepare_card_for_user(user_id, phrase, n=5):
     return translations, context_examples
 
 
+def get_random_card(user_id, set_name):
+    # get a random card from the set
+    card_id = sql_execute("""
+    SELECT card_id
+    FROM set_content
+    WHERE set_id = (SELECT set_id FROM sets WHERE set_name = :set_name AND user_id = :user_id)
+    ORDER BY RANDOM()
+    LIMIT 1
+    """, set_name=set_name, user_id=user_id)
+    card_id = card_id[0][0]
+    card_dict = get_card_translation_and_examples_representation_preview(card_id, return_pure_dicts=True)
+    return card_dict
+
+
+
+def apply_highlighting(text, highlights):
+    """Apply HTML highlighting to the specified ranges in the text."""
+    # Sort highlights by start index to handle nested or overlapping highlights
+    highlights = sorted(highlights, key=lambda x: x[0])
+    # Create a list to hold the parts of the new text
+    highlighted_text = []
+    current_pos = 0
+    for start, end in highlights:
+        # Append the text before the highlight
+        if current_pos < start:
+            highlighted_text.append(text[current_pos:start])
+        # Append the highlighted text
+        highlighted_text.append(f'{html.bold(text[start:end])}')
+        current_pos = end
+    # Append any remaining text after the last highlight
+    if current_pos < len(text):
+        highlighted_text.append(text[current_pos:])
+
+    # Join all parts and return the highlighted text
+    return ''.join(highlighted_text)
+
+
+def format_translations_and_contexts(translations_dicts, contexts_dicts):
+    display_string = "Translations:\n"
+    translations_str = ''.join([f'{i+1}. '+translation['translation']+'\n' for i,translation in enumerate(translations_dicts[:3])])
+    display_string += translations_str+'\n'
+    display_string += "Context examples:\n"
+    for i, example in enumerate(contexts_dicts[:3]):
+        display_string += f'{i+1}. '+apply_highlighting(example['source'],example['source_highlighted'])+'\n'
+        display_string += f"{html.italic(apply_highlighting(example['target'], example['target_highlighted']))}\n"
+    return display_string
+
 if __name__== '__main__':
     print(select_existing_sets(1))
+
+
+
